@@ -13,7 +13,11 @@ type ConversationState = 'idle' | 'listening' | 'thinking' | 'speaking';
     <section class="sofia-widget">
       <button class="avatar-card" type="button" (click)="startConversation()">
         <app-avatar-view
-          [speaking]="state() === 'speaking' || state() === 'listening'"
+          [speaking]="
+            state() === 'speaking' ||
+            state() === 'listening' ||
+            state() === 'thinking'
+          "
         />
 
         <div class="info">
@@ -163,22 +167,30 @@ type ConversationState = 'idle' | 'listening' | 'thinking' | 'speaking';
 })
 export class AssistantWidgetComponent {
   readonly isOpen = signal(false);
+
   readonly state = signal<ConversationState>('idle');
+
   readonly currentText = signal(
     'Tócame para empezar. Soy SofIA, tu asesora digital de ahorro.'
   );
+
   readonly showCta = signal(false);
 
-  constructor(private readonly assistantApi: AssistantApiService) {}
+  constructor(
+    private readonly assistantApi: AssistantApiService
+  ) {}
 
   statusText() {
     switch (this.state()) {
       case 'listening':
         return 'Te estoy escuchando...';
+
       case 'thinking':
         return 'Estoy analizando tu meta...';
+
       case 'speaking':
         return 'Te estoy respondiendo...';
+
       default:
         return 'Toca para hablar';
     }
@@ -186,6 +198,7 @@ export class AssistantWidgetComponent {
 
   async startConversation() {
     this.isOpen.set(true);
+
     this.showCta.set(false);
 
     const text = await this.recognizeOnce();
@@ -194,15 +207,22 @@ export class AssistantWidgetComponent {
       this.currentText.set(
         'No alcancé a escucharte. Toca el micrófono e inténtalo de nuevo.'
       );
+
       return;
     }
 
     this.currentText.set(`Escuché: “${text}”`);
+
     this.state.set('thinking');
 
+    this.currentText.set(
+      'Déjame revisar cuál opción puede ajustarse mejor para ti...'
+    );
+
     this.assistantApi.send(text).subscribe({
-      next: (res) => {
-        this.currentText.set(res.message);
+      next: async (res) => {
+        await this.typeText(res.message);
+
         this.showCta.set(res.showCta);
 
         if (res.speakResponse) {
@@ -211,10 +231,13 @@ export class AssistantWidgetComponent {
           this.state.set('idle');
         }
       },
+
       error: () => {
         const fallback =
           'Tuve un problema conectándome con SofIA. Verifica que la API esté encendida.';
+
         this.currentText.set(fallback);
+
         this.speak(fallback);
       },
     });
@@ -222,10 +245,23 @@ export class AssistantWidgetComponent {
 
   stopAll() {
     window.speechSynthesis.cancel();
+
     this.state.set('idle');
   }
 
-  private speak(text: string) {
+  private async typeText(text: string) {
+    this.currentText.set('');
+
+    for (let i = 0; i < text.length; i++) {
+      this.currentText.update((value) => value + text[i]);
+
+      await new Promise((resolve) =>
+        setTimeout(resolve, 12)
+      );
+    }
+  }
+
+  private async speak(text: string) {
     if (!('speechSynthesis' in window)) {
       this.state.set('idle');
       return;
@@ -233,16 +269,267 @@ export class AssistantWidgetComponent {
 
     window.speechSynthesis.cancel();
 
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = 'es-CO';
-    utter.rate = 1.02;
-    utter.pitch = 1.08;
+    const voices = await this.getVoices();
 
-    utter.onstart = () => this.state.set('speaking');
-    utter.onend = () => this.state.set('idle');
-    utter.onerror = () => this.state.set('idle');
+    const speechText = this.normalizeSpeechText(text);
+
+    const utter = new SpeechSynthesisUtterance(speechText);
+
+    utter.lang = 'es-CO';
+
+    utter.rate = 0.9;
+    utter.pitch = 1.16;
+    utter.volume = 1;
+
+    const preferredVoices = [
+      'Microsoft Laura',
+      'Microsoft Helena',
+      'Microsoft Sabina',
+      'Microsoft Dalia',
+      'Paulina',
+      'Sofia',
+      'Elvira',
+      'Helena',
+      'Laura',
+    ];
+
+    const selectedVoice =
+      voices.find((voice) =>
+        preferredVoices.some((name) =>
+          voice.name.toLowerCase().includes(name.toLowerCase())
+        )
+      ) ||
+      voices.find(
+        (voice) =>
+          voice.lang.toLowerCase().includes('es') &&
+          voice.name.toLowerCase().includes('female')
+      ) ||
+      voices.find((voice) =>
+        voice.lang.toLowerCase().startsWith('es')
+      );
+
+    if (selectedVoice) {
+      utter.voice = selectedVoice;
+
+      console.log(
+        '🎤 Voz seleccionada:',
+        selectedVoice.name
+      );
+    }
+
+    utter.onstart = () => {
+      this.state.set('speaking');
+    };
+
+    utter.onend = () => {
+      this.state.set('idle');
+    };
+
+    utter.onerror = () => {
+      this.state.set('idle');
+    };
 
     window.speechSynthesis.speak(utter);
+  }
+
+ private normalizeSpeechText(text: string): string {
+  return text
+    .replace(/\$([\d.]+)/g, (_match, amount) => {
+      const numeric = Number(String(amount).replace(/\./g, ''));
+
+      if (!Number.isFinite(numeric)) {
+        return amount;
+      }
+
+      return `${this.moneyToWords(numeric)} de pesos`;
+    })
+    .replace(/\n/g, '. ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+private moneyToWords(value: number): string {
+  if (value === 180000000) return 'ciento ochenta millones';
+  if (value === 1200000) return 'un millón doscientos mil';
+  if (value === 200000) return 'doscientos mil';
+
+  if (value >= 1000000 && value % 1000000 === 0) {
+    const millions = value / 1000000;
+    return `${this.basicNumberToWords(millions)} millones`;
+  }
+
+  if (value >= 1000 && value % 1000 === 0) {
+    const thousands = value / 1000;
+    return `${this.basicNumberToWords(thousands)} mil`;
+  }
+
+  return this.basicNumberToWords(value);
+}
+
+private basicNumberToWords(value: number): string {
+  const map: Record<number, string> = {
+    1: 'uno',
+    2: 'dos',
+    3: 'tres',
+    4: 'cuatro',
+    5: 'cinco',
+    6: 'seis',
+    7: 'siete',
+    8: 'ocho',
+    9: 'nueve',
+    10: 'diez',
+    20: 'veinte',
+    30: 'treinta',
+    40: 'cuarenta',
+    50: 'cincuenta',
+    60: 'sesenta',
+    70: 'setenta',
+    80: 'ochenta',
+    90: 'noventa',
+    100: 'cien',
+    180: 'ciento ochenta',
+    200: 'doscientos',
+  };
+
+  return map[value] ?? value.toString();
+}
+
+  private numberToSpanish(value: number): string {
+    if (value === 0) return 'cero';
+
+    const units = [
+      '',
+      'uno',
+      'dos',
+      'tres',
+      'cuatro',
+      'cinco',
+      'seis',
+      'siete',
+      'ocho',
+      'nueve',
+    ];
+
+    const specials: Record<number, string> = {
+      10: 'diez',
+      11: 'once',
+      12: 'doce',
+      13: 'trece',
+      14: 'catorce',
+      15: 'quince',
+      20: 'veinte',
+    };
+
+    const tens = [
+      '',
+      '',
+      'veinti',
+      'treinta',
+      'cuarenta',
+      'cincuenta',
+      'sesenta',
+      'setenta',
+      'ochenta',
+      'noventa',
+    ];
+
+    const hundreds = [
+      '',
+      'ciento',
+      'doscientos',
+      'trescientos',
+      'cuatrocientos',
+      'quinientos',
+      'seiscientos',
+      'setecientos',
+      'ochocientos',
+      'novecientos',
+    ];
+
+    const convertBelowThousand = (num: number): string => {
+      if (num === 0) return '';
+
+      if (num === 100) return 'cien';
+
+      if (num < 10) return units[num];
+
+      if (specials[num]) return specials[num];
+
+      if (num < 20) {
+        return `dieci${units[num - 10]}`;
+      }
+
+      if (num < 30) {
+        return num === 20
+          ? 'veinte'
+          : `veinti${units[num - 20]}`;
+      }
+
+      if (num < 100) {
+        const ten = Math.floor(num / 10);
+        const unit = num % 10;
+
+        return unit === 0
+          ? tens[ten]
+          : `${tens[ten]} y ${units[unit]}`;
+      }
+
+      const hundred = Math.floor(num / 100);
+      const rest = num % 100;
+
+      return rest === 0
+        ? hundreds[hundred]
+        : `${hundreds[hundred]} ${convertBelowThousand(rest)}`;
+    };
+
+    const millions = Math.floor(value / 1_000_000);
+
+    const thousands = Math.floor(
+      (value % 1_000_000) / 1_000
+    );
+
+    const rest = value % 1_000;
+
+    const parts: string[] = [];
+
+    if (millions > 0) {
+      parts.push(
+        millions === 1
+          ? 'un millón'
+          : `${convertBelowThousand(millions)} millones`
+      );
+    }
+
+    if (thousands > 0) {
+      parts.push(
+        thousands === 1
+          ? 'mil'
+          : `${convertBelowThousand(thousands)} mil`
+      );
+    }
+
+    if (rest > 0) {
+      parts.push(convertBelowThousand(rest));
+    }
+
+    return parts.join(' ');
+  }
+
+  private getVoices(): Promise<SpeechSynthesisVoice[]> {
+    return new Promise((resolve) => {
+      let voices = window.speechSynthesis.getVoices();
+
+      if (voices.length) {
+        resolve(voices);
+        return;
+      }
+
+      window.speechSynthesis.onvoiceschanged = () => {
+        voices = window.speechSynthesis.getVoices();
+
+        resolve(voices);
+      };
+    });
   }
 
   private recognizeOnce(): Promise<string | null> {
@@ -252,12 +539,14 @@ export class AssistantWidgetComponent {
     };
 
     const Ctor =
-      AnyWindow.SpeechRecognition ?? AnyWindow.webkitSpeechRecognition;
+      AnyWindow.SpeechRecognition ??
+      AnyWindow.webkitSpeechRecognition;
 
     if (!Ctor) {
       this.currentText.set(
         'Tu navegador no soporta reconocimiento de voz. Usa Chrome o Edge.'
       );
+
       return Promise.resolve(null);
     }
 
@@ -270,18 +559,23 @@ export class AssistantWidgetComponent {
 
       const done = (value: string | null) => {
         this.state.set('idle');
+
         resolve(value);
       };
 
       rec.onresult = (evt: any) => {
-        const result = evt?.results?.[0]?.[0]?.transcript ?? '';
+        const result =
+          evt?.results?.[0]?.[0]?.transcript ?? '';
+
         done(result.trim() || null);
       };
 
       rec.onerror = () => done(null);
 
       rec.onend = () => {
-        if (this.state() === 'listening') done(null);
+        if (this.state() === 'listening') {
+          done(null);
+        }
       };
 
       this.state.set('listening');
