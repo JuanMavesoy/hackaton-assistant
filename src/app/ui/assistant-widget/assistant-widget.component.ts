@@ -1,179 +1,247 @@
 import { Component, signal } from '@angular/core';
-import { AvatarViewComponent } from '../avatar-view/avatar-view.component';
-import { ChatWindowComponent, ChatMessage } from '../chat-window/chat-window.component';
+import { AssistantApiService } from '../../services/assistant-api.service';
 import { CtaActionsComponent } from '../cta-actions/cta-actions.component';
+import { AvatarViewComponent } from '../avatar-view/avatar-view.component';
+
+type ConversationState = 'idle' | 'listening' | 'thinking' | 'speaking';
 
 @Component({
   standalone: true,
   selector: 'app-assistant-widget',
-  imports: [AvatarViewComponent, ChatWindowComponent, CtaActionsComponent],
+  imports: [CtaActionsComponent, AvatarViewComponent],
   template: `
-    <button class="fab" type="button" (click)="toggle()" [attr.aria-expanded]="isOpen()">
-      <span class="dot" aria-hidden="true"></span>
-      <span class="label">{{ isOpen() ? 'Cerrar' : 'Asistente' }}</span>
-    </button>
-
-    @if (isOpen()) {
-      <section class="panel" role="dialog" aria-label="Asistente">
-        <header class="panel__header">
-          <app-avatar-view [speaking]="speaking()" />
-          <div class="title">
-            <div class="title__name">Asistente</div>
-            <div class="title__hint">Texto + voz · demo hackatón</div>
-          </div>
-          <button class="icon" type="button" (click)="toggle()" aria-label="Cerrar">✕</button>
-        </header>
-
-        <app-chat-window
-          [messages]="messages()"
-          (sendText)="onSendText($event)"
-          (sendVoice)="onSendVoice()"
-          [listening]="listening()"
+    <section class="sofia-widget">
+      <button class="avatar-card" type="button" (click)="startConversation()">
+        <app-avatar-view
+          [speaking]="state() === 'speaking' || state() === 'listening'"
         />
 
-        <footer class="panel__footer">
-          <app-cta-actions />
-        </footer>
-      </section>
-    }
+        <div class="info">
+          <strong>SofIA</strong>
+          <span>{{ statusText() }}</span>
+        </div>
+      </button>
+
+      @if (isOpen()) {
+        <div class="assistant-panel">
+          <div class="caption">
+            {{ currentText() }}
+          </div>
+
+          @if (showCta()) {
+            <app-cta-actions />
+          }
+
+          <div class="actions">
+            <button
+              type="button"
+              (click)="startConversation()"
+              [disabled]="state() === 'thinking'"
+            >
+              🎤 Hablar
+            </button>
+
+            <button type="button" (click)="stopAll()">
+              Detener
+            </button>
+          </div>
+        </div>
+      }
+    </section>
   `,
   styles: [
     `
-      .fab {
+      .sofia-widget {
         position: fixed;
-        right: 18px;
-        bottom: 18px;
-        height: 52px;
-        padding: 0 16px;
-        border-radius: 999px;
-        border: 1px solid rgba(255, 255, 255, 0.16);
-        background: linear-gradient(135deg, rgba(124, 92, 255, 0.85), rgba(53, 208, 255, 0.55));
-        color: #071021;
-        font-weight: 800;
-        box-shadow: var(--shadow);
+        right: 24px;
+        bottom: 24px;
+        z-index: 100;
+        width: 360px;
+        max-width: calc(100vw - 32px);
+        font-family: Inter, system-ui, sans-serif;
+      }
+
+      .avatar-card {
+        width: 100%;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 30px;
+        padding: 20px;
+        background: linear-gradient(
+          135deg,
+          rgba(124, 92, 255, 0.28),
+          rgba(53, 208, 255, 0.12)
+        );
+        color: white;
+        display: flex;
+        align-items: center;
+        gap: 18px;
         cursor: pointer;
-        display: inline-flex;
-        align-items: center;
-        gap: 10px;
+        box-shadow:
+          0 24px 60px rgba(0, 0, 0, 0.35),
+          inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(18px);
+        transition:
+          transform 0.25s ease,
+          box-shadow 0.25s ease,
+          border-color 0.25s ease;
       }
-      .dot {
-        width: 10px;
-        height: 10px;
-        border-radius: 999px;
-        background: rgba(7, 16, 33, 0.6);
+
+      .avatar-card:hover {
+        transform: translateY(-3px);
+        box-shadow:
+          0 32px 70px rgba(0, 0, 0, 0.42),
+          0 0 0 1px rgba(255, 255, 255, 0.06);
+        border-color: rgba(53, 208, 255, 0.35);
       }
-      .panel {
-        position: fixed;
-        right: 18px;
-        bottom: 86px;
-        width: min(420px, calc(100vw - 36px));
-        height: min(640px, calc(100vh - 120px));
-        border-radius: var(--radius);
-        background: rgba(10, 16, 32, 0.78);
-        border: 1px solid rgba(255, 255, 255, 0.16);
-        backdrop-filter: blur(12px);
-        box-shadow: var(--shadow);
-        overflow: hidden;
+
+      .info {
         display: grid;
-        grid-template-rows: auto 1fr auto;
+        text-align: left;
       }
-      .panel__header {
-        padding: 14px 14px 12px;
-        display: grid;
-        grid-template-columns: auto 1fr auto;
-        gap: 12px;
-        align-items: center;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+
+      .info strong {
+        font-size: 26px;
+        line-height: 1;
+      }
+
+      .info span {
+        margin-top: 6px;
+        font-size: 14px;
+        color: rgba(255, 255, 255, 0.75);
+      }
+
+      .assistant-panel {
+        margin-top: 14px;
+        padding: 18px;
+        border-radius: 28px;
         background: linear-gradient(
           180deg,
-          rgba(255, 255, 255, 0.08),
-          rgba(255, 255, 255, 0.02)
+          rgba(10, 16, 32, 0.94),
+          rgba(10, 16, 32, 0.86)
         );
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(18px);
       }
-      .title__name {
-        font-weight: 800;
-        letter-spacing: -0.01em;
+
+      .caption {
+        min-height: 72px;
+        color: white;
+        line-height: 1.45;
+        font-size: 15px;
+        margin-bottom: 14px;
       }
-      .title__hint {
-        font-size: 12px;
-        color: var(--muted);
+
+      .actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-top: 12px;
       }
-      .icon {
-        width: 36px;
-        height: 36px;
-        border-radius: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.14);
-        background: rgba(255, 255, 255, 0.06);
-        color: var(--text);
+
+      .actions button {
+        height: 42px;
+        border: 0;
+        border-radius: 14px;
         cursor: pointer;
+        font-weight: 800;
+        background: rgba(255, 255, 255, 0.08);
+        color: white;
       }
-      .panel__footer {
-        border-top: 1px solid rgba(255, 255, 255, 0.12);
-        padding: 10px 12px;
-        background: rgba(255, 255, 255, 0.04);
+
+      .actions button:first-child {
+        background: linear-gradient(135deg, var(--brand), var(--brand-2));
+        color: #071021;
+      }
+
+      .actions button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
       }
     `,
   ],
 })
 export class AssistantWidgetComponent {
   readonly isOpen = signal(false);
-  readonly messages = signal<ChatMessage[]>([
-    {
-      id: crypto.randomUUID(),
-      role: 'assistant',
-      text: 'Hola. Soy tu asistente demo. Escribe un mensaje o usa el micrófono.',
-      at: Date.now(),
-    },
-  ]);
+  readonly state = signal<ConversationState>('idle');
+  readonly currentText = signal(
+    'Tócame para empezar. Soy SofIA, tu asesora digital de ahorro.'
+  );
+  readonly showCta = signal(false);
 
-  readonly listening = signal(false);
-  readonly speaking = signal(false);
+  constructor(private readonly assistantApi: AssistantApiService) {}
 
-  toggle() {
-    this.isOpen.update((v) => !v);
+  statusText() {
+    switch (this.state()) {
+      case 'listening':
+        return 'Te estoy escuchando...';
+      case 'thinking':
+        return 'Estoy analizando tu meta...';
+      case 'speaking':
+        return 'Te estoy respondiendo...';
+      default:
+        return 'Toca para hablar';
+    }
   }
 
-  onSendText(text: string) {
-    const trimmed = text.trim();
-    if (!trimmed) return;
+  async startConversation() {
+    this.isOpen.set(true);
+    this.showCta.set(false);
 
-    this.append({ role: 'user', text: trimmed });
-    this.respondMock(trimmed);
+    const text = await this.recognizeOnce();
+
+    if (!text) {
+      this.currentText.set(
+        'No alcancé a escucharte. Toca el micrófono e inténtalo de nuevo.'
+      );
+      return;
+    }
+
+    this.currentText.set(`Escuché: “${text}”`);
+    this.state.set('thinking');
+
+    this.assistantApi.send(text).subscribe({
+      next: (res) => {
+        this.currentText.set(res.message);
+        this.showCta.set(res.showCta);
+
+        if (res.speakResponse) {
+          this.speak(res.message);
+        } else {
+          this.state.set('idle');
+        }
+      },
+      error: () => {
+        const fallback =
+          'Tuve un problema conectándome con SofIA. Verifica que la API esté encendida.';
+        this.currentText.set(fallback);
+        this.speak(fallback);
+      },
+    });
   }
 
-  async onSendVoice() {
-    const recognized = await this.recognizeOnce();
-    if (!recognized) return;
-    this.onSendText(recognized);
-  }
-
-  private append(msg: { role: 'user' | 'assistant'; text: string }) {
-    this.messages.update((m) => [
-      ...m,
-      { id: crypto.randomUUID(), role: msg.role, text: msg.text, at: Date.now() },
-    ]);
-  }
-
-  private respondMock(userText: string) {
-    const reply =
-      userText.toLowerCase().includes('aportar') || userText.toLowerCase().includes('donar')
-        ? 'Si quieres aportar, toca “Aportar ahora” abajo. (Es una redirección mock por ahora).'
-        : `Entendido. (Respuesta mock) Dijiste: “${userText}”. ¿Quieres que lo pasemos a voz?`;
-
-    this.append({ role: 'assistant', text: reply });
-    this.speak(reply);
+  stopAll() {
+    window.speechSynthesis.cancel();
+    this.state.set('idle');
   }
 
   private speak(text: string) {
-    if (!('speechSynthesis' in window)) return;
+    if (!('speechSynthesis' in window)) {
+      this.state.set('idle');
+      return;
+    }
+
     window.speechSynthesis.cancel();
 
     const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = 'es-ES';
-    utter.rate = 1.03;
-    utter.onstart = () => this.speaking.set(true);
-    utter.onend = () => this.speaking.set(false);
-    utter.onerror = () => this.speaking.set(false);
+    utter.lang = 'es-CO';
+    utter.rate = 1.02;
+    utter.pitch = 1.08;
+
+    utter.onstart = () => this.state.set('speaking');
+    utter.onend = () => this.state.set('idle');
+    utter.onerror = () => this.state.set('idle');
+
     window.speechSynthesis.speak(utter);
   }
 
@@ -182,36 +250,42 @@ export class AssistantWidgetComponent {
       SpeechRecognition?: new () => any;
       webkitSpeechRecognition?: new () => any;
     };
-    const Ctor = AnyWindow.SpeechRecognition ?? AnyWindow.webkitSpeechRecognition;
+
+    const Ctor =
+      AnyWindow.SpeechRecognition ?? AnyWindow.webkitSpeechRecognition;
+
     if (!Ctor) {
-      this.append({
-        role: 'assistant',
-        text: 'Tu navegador no soporta SpeechRecognition. Prueba Chrome o Edge.',
-      });
+      this.currentText.set(
+        'Tu navegador no soporta reconocimiento de voz. Usa Chrome o Edge.'
+      );
       return Promise.resolve(null);
     }
 
     return new Promise((resolve) => {
       const rec = new Ctor();
-      rec.lang = 'es-ES';
+
+      rec.lang = 'es-CO';
       rec.interimResults = false;
       rec.maxAlternatives = 1;
 
       const done = (value: string | null) => {
-        this.listening.set(false);
+        this.state.set('idle');
         resolve(value);
       };
 
       rec.onresult = (evt: any) => {
-        const text = evt?.results?.[0]?.[0]?.transcript ?? '';
-        done(text.trim() || null);
-      };
-      rec.onerror = () => done(null);
-      rec.onend = () => {
-        if (this.listening()) done(null);
+        const result = evt?.results?.[0]?.[0]?.transcript ?? '';
+        done(result.trim() || null);
       };
 
-      this.listening.set(true);
+      rec.onerror = () => done(null);
+
+      rec.onend = () => {
+        if (this.state() === 'listening') done(null);
+      };
+
+      this.state.set('listening');
+
       try {
         rec.start();
       } catch {
@@ -220,4 +294,3 @@ export class AssistantWidgetComponent {
     });
   }
 }
-

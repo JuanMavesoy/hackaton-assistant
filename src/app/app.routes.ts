@@ -1,10 +1,18 @@
 import { Routes } from '@angular/router';
-import { DonateMockComponent } from './pages/donate-mock.component';
 import { HomeComponent } from './pages/home.component';
+import { DonateMockComponent } from './pages/donate-mock.component';
 
 export const routes: Routes = [
-  { path: '', component: HomeComponent },
-  { path: 'donate-mock', component: DonateMockComponent },
-  { path: '**', redirectTo: '' },
+  {
+    path: '',
+    component: HomeComponent,
+  },
+  {
+    path: 'aportar',
+    component: DonateMockComponent,
+  },
+  {
+    path: '**',
+    redirectTo: '',
+  },
 ];
-

@@ -6,78 +6,97 @@ import { Component, Input } from '@angular/core';
   template: `
     <div class="avatar" [class.avatar--speaking]="speaking" aria-hidden="true">
       <div class="ring"></div>
-      <div class="face">
-        <div class="eye"></div>
-        <div class="eye"></div>
-        <div class="mouth"></div>
-      </div>
+
+      <div class="avatar-img"></div>
     </div>
   `,
   styles: [
     `
       .avatar {
-        width: 44px;
-        height: 44px;
+        width: 108px;
+        height: 108px;
         border-radius: 999px;
         position: relative;
         display: grid;
         place-items: center;
+        flex: 0 0 auto;
       }
+
       .ring {
         position: absolute;
-        inset: 0;
+        inset: -5px;
         border-radius: 999px;
-        background: radial-gradient(circle at 30% 30%, rgba(53, 208, 255, 0.9), rgba(124, 92, 255, 0.7));
-        filter: blur(0.2px);
+
+        background: radial-gradient(
+          circle at 30% 30%,
+          rgba(53, 208, 255, 0.95),
+          rgba(124, 92, 255, 0.75)
+        );
+
+        filter: blur(0.4px);
+
         opacity: 0.95;
-      }
-      .face {
-        width: 34px;
-        height: 34px;
-        border-radius: 999px;
-        background: rgba(7, 16, 33, 0.65);
-        border: 1px solid rgba(255, 255, 255, 0.14);
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        grid-template-rows: 1fr auto;
-        align-items: center;
-        justify-items: center;
-        padding-top: 7px;
-        gap: 2px 6px;
-        position: relative;
+
         z-index: 1;
       }
-      .eye {
-        width: 6px;
-        height: 6px;
+
+      .avatar-img {
+        width: 100%;
+        height: 100%;
         border-radius: 999px;
-        background: rgba(255, 255, 255, 0.88);
+
+        position: relative;
+        z-index: 2;
+
+        background-image: url('/sofia.png');
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+
+        border: 3px solid rgba(255, 255, 255, 0.72);
+
+        box-shadow:
+          0 16px 36px rgba(0, 0, 0, 0.38),
+          0 0 0 8px rgba(53, 208, 255, 0.12);
+
+        transition:
+          transform 0.25s ease,
+          box-shadow 0.25s ease;
       }
-      .mouth {
-        grid-column: 1 / span 2;
-        width: 14px;
-        height: 6px;
-        border-radius: 0 0 10px 10px;
-        border: 2px solid rgba(255, 255, 255, 0.78);
-        border-top: 0;
-        opacity: 0.9;
-        margin-bottom: 6px;
+
+      .avatar--speaking .avatar-img {
+        animation: avatarBreath 900ms ease-in-out infinite;
       }
+
       .avatar--speaking .ring {
         animation: pulse 850ms ease-in-out infinite;
       }
+
+      @keyframes avatarBreath {
+        0%,
+        100% {
+          transform: scale(1);
+        }
+
+        50% {
+          transform: scale(1.035);
+        }
+      }
+
       @keyframes pulse {
         0% {
           transform: scale(1);
-          filter: blur(0.2px);
+          opacity: 0.55;
         }
+
         50% {
-          transform: scale(1.08);
-          filter: blur(0.6px);
+          transform: scale(1.12);
+          opacity: 0.95;
         }
+
         100% {
           transform: scale(1);
-          filter: blur(0.2px);
+          opacity: 0.55;
         }
       }
     `,
@@ -86,4 +105,3 @@ import { Component, Input } from '@angular/core';
 export class AvatarViewComponent {
   @Input() speaking = false;
 }
-
